@@ -9,6 +9,69 @@ def get_coolify_servers(coolify_url, coolify_token):
     response.raise_for_status()
     return response.json()
 
+def get_npm_proxy_hosts(npm_url, npm_token):
+    headers = {"Authorization": f"Bearer {npm_token}"}
+    url = f"{npm_url}/api/nginx/proxy-hosts"
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    return response.json()
+
+def sync_npm_to_netbox(proxies, nb):
+    for proxy in proxies:
+        domain_names = proxy.get('domain_names', [])
+        forward_ip = proxy.get('forward_host')
+        forward_port = proxy.get('forward_port')
+
+        if not forward_ip or not domain_names:
+            continue
+
+        # Match by IP
+        netbox_ip = forward_ip if '/' in forward_ip else f"{forward_ip}/32"
+
+        try:
+            ip_obj = nb.ipam.ip_addresses.get(address=netbox_ip)
+        except Exception as e:
+            print(f"Error finding IP {forward_ip} in NetBox: {e}. Skipping proxy for {domain_names}.")
+            continue
+
+        if not ip_obj:
+            print(f"IP {forward_ip} not found in NetBox. Skipping proxy for {domain_names}.")
+            continue
+
+        device_id = None
+        if ip_obj.assigned_object and hasattr(ip_obj.assigned_object, 'device'):
+            device_id = ip_obj.assigned_object.device.id
+
+        if not device_id:
+            print(f"IP {forward_ip} is not assigned to a device. Skipping proxy for {domain_names}.")
+            continue
+
+        # Create service
+        main_domain = domain_names[0]
+        service_name = f"NPM Proxy - {main_domain}"
+        service = nb.ipam.services.get(name=service_name, device_id=device_id)
+
+        protocol = proxy.get('forward_scheme', 'http')
+        protocol_val = "tcp" # Netbox requires tcp/udp/sctp, not http/https
+
+        # We can add custom fields or simply put domain names in the description for external links
+        description = f"External Domains: {', '.join(domain_names)} -> Internal: {protocol}://{forward_ip}:{forward_port}"
+
+        if not service:
+            print(f"Creating service {service_name} for device ID {device_id}...")
+            service = nb.ipam.services.create(
+                device=device_id,
+                name=service_name,
+                protocol=protocol_val,
+                ports=[forward_port],
+                description=description
+            )
+        else:
+            print(f"Service {service_name} already exists. Updating...")
+            service.description = description
+            service.ports = [forward_port]
+            service.save()
+
 def sync_servers_to_netbox(servers, netbox_url, netbox_token):
     nb = pynetbox.api(netbox_url, token=netbox_token)
 
@@ -102,6 +165,8 @@ if __name__ == "__main__":
     COOLIFY_TOKEN = os.environ.get("COOLIFY_TOKEN")
     NETBOX_URL = os.environ.get("NETBOX_URL")
     NETBOX_TOKEN = os.environ.get("NETBOX_TOKEN")
+    NPM_URL = os.environ.get("NPM_URL")
+    NPM_TOKEN = os.environ.get("NPM_TOKEN")
 
     if not all([COOLIFY_URL, COOLIFY_TOKEN, NETBOX_URL, NETBOX_TOKEN]):
         print("Please set COOLIFY_URL, COOLIFY_TOKEN, NETBOX_URL, and NETBOX_TOKEN environment variables.")
@@ -113,6 +178,18 @@ if __name__ == "__main__":
         print(f"Found {len(servers)} servers in Coolify.")
         print("Syncing to NetBox...")
         sync_servers_to_netbox(servers, NETBOX_URL, NETBOX_TOKEN)
-        print("Sync complete.")
+        print("Coolify Sync complete.")
     except Exception as e:
-        print(f"Error during sync: {e}")
+        print(f"Error during Coolify sync: {e}")
+
+    if NPM_URL and NPM_TOKEN:
+        print("Fetching proxies from Nginx Proxy Manager...")
+        try:
+            proxies = get_npm_proxy_hosts(NPM_URL, NPM_TOKEN)
+            print(f"Found {len(proxies)} proxies in NPM.")
+            nb = pynetbox.api(NETBOX_URL, token=NETBOX_TOKEN)
+            print("Syncing NPM to NetBox...")
+            sync_npm_to_netbox(proxies, nb)
+            print("NPM Sync complete.")
+        except Exception as e:
+            print(f"Error during NPM sync: {e}")
