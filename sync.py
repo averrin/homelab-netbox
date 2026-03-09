@@ -1,7 +1,57 @@
 import os
+import logging
 import requests
 import pynetbox
+from dotenv import load_dotenv
 from infisical_sdk import InfisicalSDKClient
+
+logger = logging.getLogger(__name__)
+
+INFISICAL_DEFAULT_URL = "https://app.infisical.com"
+INFISICAL_DEFAULT_ENVIRONMENT = "prod"
+INFISICAL_DEFAULT_SECRET_PATH = "/"
+
+def load_config():
+    """Load secrets from Infisical into os.environ, falling back to .env."""
+    load_dotenv()
+
+    client_id = os.environ.get("INFISICAL_CLIENT_ID")
+    client_secret = os.environ.get("INFISICAL_CLIENT_SECRET")
+
+    if not client_id or not client_secret:
+        print("Infisical credentials not fully provided — relying on .env or existing environment variables.")
+        return
+
+    project_id = os.environ.get("INFISICAL_PROJECT_ID")
+    if not project_id:
+        print("INFISICAL_PROJECT_ID is required to fetch configuration secrets.")
+        return
+
+    environment = os.environ.get("INFISICAL_ENVIRONMENT", INFISICAL_DEFAULT_ENVIRONMENT)
+    secret_path = os.environ.get("INFISICAL_SECRET_PATH", INFISICAL_DEFAULT_SECRET_PATH)
+    site_url = os.environ.get("INFISICAL_URL", INFISICAL_DEFAULT_URL).rstrip("/")
+
+    try:
+        client = InfisicalSDKClient(host=site_url)
+        client.auth.universal_auth.login(
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+        response = client.secrets.list_secrets(
+            environment_slug=environment,
+            project_id=project_id,
+            secret_path=secret_path,
+        )
+
+        injected = 0
+        for s in response.secrets:
+            if s.secretKey and s.secretKey not in os.environ:
+                os.environ[s.secretKey] = s.secretValue
+                injected += 1
+
+        print(f"Loaded {injected} secrets from Infisical (env={environment}, path={secret_path})")
+    except Exception as e:
+        print(f"Failed to fetch configuration secrets from Infisical: {e}")
 
 def get_coolify_servers(coolify_url, coolify_token):
     headers = {"Authorization": f"Bearer {coolify_token}"}
@@ -256,6 +306,8 @@ def sync_servers_to_netbox(servers, netbox_url, netbox_token):
 
 
 if __name__ == "__main__":
+    load_config()
+
     COOLIFY_URL = os.environ.get("COOLIFY_URL")
     COOLIFY_TOKEN = os.environ.get("COOLIFY_TOKEN")
     NETBOX_URL = os.environ.get("NETBOX_URL")

@@ -1,3 +1,4 @@
 requests
 pynetbox
 infisicalsdk
+python-dotenv
