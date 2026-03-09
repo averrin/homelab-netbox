@@ -1,6 +1,7 @@
 import os
 import requests
 import pynetbox
+from infisical_sdk import InfisicalSDKClient
 
 def get_coolify_servers(coolify_url, coolify_token):
     headers = {"Authorization": f"Bearer {coolify_token}"}
@@ -71,6 +72,100 @@ def sync_npm_to_netbox(proxies, nb):
             service.description = description
             service.ports = [forward_port]
             service.save()
+
+def sync_netbox_to_infisical(nb, infisical_client, project_id, environment_slug):
+    try:
+        role = nb.dcim.device_roles.get(name="Server")
+        if not role:
+            print("No 'Server' role found in NetBox.")
+            return
+        servers = nb.dcim.devices.filter(role_id=role.id)
+    except Exception as e:
+        print(f"Error fetching servers from NetBox: {e}")
+        return
+
+    for server in servers:
+        # Determine internal link, external link, and port based on primary IP and services
+        ip = None
+        if server.primary_ip4:
+            ip = server.primary_ip4.address.split('/')[0]
+
+        ports = []
+        external_links = []
+        internal_links = []
+
+        if ip:
+            services = nb.ipam.services.filter(device_id=server.id)
+            for service in services:
+                for port in service.ports:
+                    ports.append(str(port))
+                    internal_links.append(f"{service.protocol}://{ip}:{port}")
+
+                # We placed external domains in the description in a previous step
+                if "External Domains: " in service.description:
+                    domains = service.description.split("External Domains: ")[1].split(" -> Internal:")[0]
+                    for domain in domains.split(", "):
+                        external_links.append(f"https://{domain.strip()}")
+
+        folder_name = server.name
+        folder_path = "/"
+
+        # Create/Get folder in Infisical
+        try:
+            infisical_client.folders.create_folder(
+                name=folder_name,
+                environment_slug=environment_slug,
+                project_id=project_id,
+                path=folder_path
+            )
+        except Exception as e:
+            # Folder might already exist, infisical throws an error but it's okay
+            pass
+
+        secret_path = f"{folder_path}{folder_name}"
+
+        # Sync secrets
+        secrets_to_sync = {
+            "IP": ip or "N/A",
+            "PORT": ",".join(ports) or "N/A",
+            "INTERNAL_LINK": ",".join(internal_links) or "N/A",
+            "EXTERNAL_LINK": ",".join(external_links) or "N/A",
+            "NETBOX_URL": f"{nb.base_url}/dcim/devices/{server.id}/"
+        }
+
+        for key, value in secrets_to_sync.items():
+            try:
+                # Try creating
+                infisical_client.secrets.create_secret_by_name(
+                    secret_name=key,
+                    secret_value=value,
+                    secret_path=secret_path,
+                    environment_slug=environment_slug,
+                    project_id=project_id,
+                    secret_comment=f"Synced from NetBox Server {server.name}"
+                )
+            except Exception as e:
+                # If creating fails, try updating (e.g., secret already exists)
+                # infisicalsdk throws error if secret exists
+                try:
+                    infisical_client.secrets.update_secret_by_name(
+                        secret_name=key,
+                        secret_value=value,
+                        secret_path=secret_path,
+                        environment_slug=environment_slug,
+                        project_id=project_id
+                    )
+                except Exception as update_e:
+                    print(f"Failed to sync secret {key} for server {server.name}: Create Error: {e}, Update Error: {update_e}")
+
+        # Update NetBox server description to reference the Infisical folder
+        infisical_reference = f"\nInfisical Secrets Path: {secret_path} (Environment: {environment_slug})"
+        if "Infisical Secrets Path:" not in server.comments:
+            server.comments = (server.comments or "") + infisical_reference
+            server.save()
+            print(f"Updated NetBox server {server.name} with Infisical reference.")
+        else:
+            print(f"Server {server.name} secrets synced to Infisical.")
 
 def sync_servers_to_netbox(servers, netbox_url, netbox_token):
     nb = pynetbox.api(netbox_url, token=netbox_token)
@@ -167,6 +262,11 @@ if __name__ == "__main__":
     NETBOX_TOKEN = os.environ.get("NETBOX_TOKEN")
     NPM_URL = os.environ.get("NPM_URL")
     NPM_TOKEN = os.environ.get("NPM_TOKEN")
+    INFISICAL_URL = os.environ.get("INFISICAL_URL", "https://app.infisical.com")
+    INFISICAL_CLIENT_ID = os.environ.get("INFISICAL_CLIENT_ID")
+    INFISICAL_CLIENT_SECRET = os.environ.get("INFISICAL_CLIENT_SECRET")
+    INFISICAL_PROJECT_ID = os.environ.get("INFISICAL_PROJECT_ID")
+    INFISICAL_ENV_SLUG = os.environ.get("INFISICAL_ENV_SLUG", "dev")
 
     if not all([COOLIFY_URL, COOLIFY_TOKEN, NETBOX_URL, NETBOX_TOKEN]):
         print("Please set COOLIFY_URL, COOLIFY_TOKEN, NETBOX_URL, and NETBOX_TOKEN environment variables.")
@@ -193,3 +293,17 @@ if __name__ == "__main__":
             print("NPM Sync complete.")
         except Exception as e:
             print(f"Error during NPM sync: {e}")
+
+    if INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET and INFISICAL_PROJECT_ID:
+        print("Syncing NetBox to Infisical...")
+        try:
+            infisical_client = InfisicalSDKClient(host=INFISICAL_URL)
+            infisical_client.auth.universal_auth.login(
+                client_id=INFISICAL_CLIENT_ID,
+                client_secret=INFISICAL_CLIENT_SECRET
+            )
+            nb = pynetbox.api(NETBOX_URL, token=NETBOX_TOKEN)
+            sync_netbox_to_infisical(nb, infisical_client, INFISICAL_PROJECT_ID, INFISICAL_ENV_SLUG)
+            print("Infisical Sync complete.")
+        except Exception as e:
+            print(f"Error during Infisical sync: {e}")
