@@ -420,7 +420,7 @@ def sync_servers_to_netbox(servers, netbox_url, netbox_token):
                 device.save()
 
 
-if __name__ == "__main__":
+def main():
     load_config()
 
     COOLIFY_URL = os.environ.get("COOLIFY_URL")
@@ -439,7 +439,7 @@ if __name__ == "__main__":
 
     if not all([COOLIFY_URL, COOLIFY_TOKEN, NETBOX_URL, NETBOX_TOKEN]):
         print("Please set COOLIFY_URL, COOLIFY_TOKEN, NETBOX_URL, and NETBOX_TOKEN environment variables.")
-        exit(1)
+        return
 
     print("Fetching servers from Coolify...")
     try:
@@ -488,3 +488,6 @@ if __name__ == "__main__":
             print("Infisical Sync complete.")
         except Exception as e:
             print(f"Error during Infisical sync: {e}")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,6 @@
+requests
+pynetbox
+infisicalsdk
+python-dotenv
+pytest
+pytest-mock
