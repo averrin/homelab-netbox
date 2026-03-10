@@ -60,6 +60,34 @@ def get_coolify_servers(coolify_url, coolify_token):
     response.raise_for_status()
     return response.json()
 
+def get_pulse_containers(pulse_url, pulse_token):
+    headers = {"X-API-Token": pulse_token}
+    url = f"{pulse_url}/api/resources"
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    resources = response.json()
+
+    # Filter for container types. Pulse API might return a dict or list. Let's assume list of dicts.
+    containers = []
+    if isinstance(resources, list):
+        for res in resources:
+            res_type = res.get('type') or res.get('resourceType')
+            if res_type in ['container', 'dockerContainer', 'docker']:
+                containers.append(res)
+    elif isinstance(resources, dict) and 'data' in resources:
+        for res in resources['data']:
+            res_type = res.get('type') or res.get('resourceType')
+            if res_type in ['container', 'dockerContainer', 'docker']:
+                containers.append(res)
+    else:
+        # If it's a flat dictionary of objects
+        for k, res in resources.items():
+            if isinstance(res, dict):
+                res_type = res.get('type') or res.get('resourceType')
+                if res_type in ['container', 'dockerContainer', 'docker']:
+                    containers.append(res)
+    return containers
+
 def get_npm_proxy_hosts(npm_url, npm_token):
     headers = {"Authorization": f"Bearer {npm_token}"}
     url = f"{npm_url}/api/nginx/proxy-hosts"
@@ -122,6 +150,93 @@ def sync_npm_to_netbox(proxies, nb):
             service.description = description
             service.ports = [forward_port]
             service.save()
+
+def sync_pulse_containers_to_netbox(containers, nb):
+    try:
+        cluster_type = nb.virtualization.cluster_types.get(name="Docker/Container")
+        if not cluster_type:
+            cluster_type = nb.virtualization.cluster_types.create(name="Docker/Container", slug="docker-container")
+
+        cluster = nb.virtualization.clusters.get(name="Pulse Containers")
+        if not cluster:
+            cluster = nb.virtualization.clusters.create(name="Pulse Containers", type=cluster_type.id)
+
+    except Exception as e:
+        print(f"Error ensuring NetBox Cluster/ClusterType for Pulse: {e}")
+        return
+
+    for container in containers:
+        # Pulse resource structure includes `id`, `name`, `status`, `ipAddresses`, `resourceType`
+        name = container.get('name') or container.get('id')
+        if not name:
+            continue
+
+        status = "active" if container.get('status', '').lower() == "running" else "offline"
+        description = f"Pulse Container ID: {container.get('id')}"
+
+        # Get existing VM
+        vm = nb.virtualization.virtual_machines.get(name=name, cluster_id=cluster.id)
+        if vm:
+            print(f"Pulse container VM {name} already exists. Updating...")
+            if vm.description != description or vm.status.value != status:
+                vm.description = description
+                vm.status = status
+                vm.save()
+        else:
+            print(f"Creating Pulse container VM {name}...")
+            vm = nb.virtualization.virtual_machines.create(
+                name=name,
+                cluster=cluster.id,
+                description=description,
+                status=status
+            )
+
+        # Handle IP Addresses
+        ips = container.get('ipAddresses', [])
+        # Sometimes IP is just a string
+        if isinstance(ips, str):
+            ips = [ips]
+
+        primary_ip = None
+        for ip_address in ips:
+            if not ip_address:
+                continue
+
+            netbox_ip = ip_address if '/' in ip_address else f"{ip_address}/32"
+
+            # Create/get interface
+            interface_name = "eth0"
+            interface = nb.virtualization.interfaces.get(virtual_machine_id=vm.id, name=interface_name)
+            if not interface:
+                interface = nb.virtualization.interfaces.create(
+                    virtual_machine=vm.id,
+                    name=interface_name
+                )
+
+            try:
+                ip_obj = nb.ipam.ip_addresses.get(address=netbox_ip)
+            except Exception as e:
+                print(f"Error finding IP {ip_address} in NetBox: {e}")
+                continue
+
+            if not ip_obj:
+                ip_obj = nb.ipam.ip_addresses.create(
+                    address=netbox_ip,
+                    status="active"
+                )
+
+            if not ip_obj.assigned_object_id or ip_obj.assigned_object_type != "virtualization.vminterface" or ip_obj.assigned_object_id != interface.id:
+                ip_obj.assigned_object_type = "virtualization.vminterface"
+                ip_obj.assigned_object_id = interface.id
+                ip_obj.save()
+
+            if not primary_ip:
+                primary_ip = ip_obj
+
+        if primary_ip and getattr(vm, 'primary_ip4', None) != primary_ip:
+            vm.primary_ip4 = primary_ip.id
+            vm.save()
+
 
 def sync_netbox_to_infisical(nb, infisical_client, project_id, environment_slug):
     try:
@@ -314,6 +429,8 @@ if __name__ == "__main__":
     NETBOX_TOKEN = os.environ.get("NETBOX_TOKEN")
     NPM_URL = os.environ.get("NPM_URL")
     NPM_TOKEN = os.environ.get("NPM_TOKEN")
+    PULSE_URL = os.environ.get("PULSE_URL")
+    PULSE_TOKEN = os.environ.get("PULSE_TOKEN")
     INFISICAL_URL = os.environ.get("INFISICAL_URL", "https://app.infisical.com")
     INFISICAL_CLIENT_ID = os.environ.get("INFISICAL_CLIENT_ID")
     INFISICAL_CLIENT_SECRET = os.environ.get("INFISICAL_CLIENT_SECRET")
@@ -333,6 +450,18 @@ if __name__ == "__main__":
         print("Coolify Sync complete.")
     except Exception as e:
         print(f"Error during Coolify sync: {e}")
+
+    if PULSE_URL and PULSE_TOKEN:
+        print("Fetching containers from Pulse...")
+        try:
+            containers = get_pulse_containers(PULSE_URL, PULSE_TOKEN)
+            print(f"Found {len(containers)} containers in Pulse.")
+            nb = pynetbox.api(NETBOX_URL, token=NETBOX_TOKEN)
+            print("Syncing Pulse containers to NetBox...")
+            sync_pulse_containers_to_netbox(containers, nb)
+            print("Pulse Sync complete.")
+        except Exception as e:
+            print(f"Error during Pulse sync: {e}")
 
     if NPM_URL and NPM_TOKEN:
         print("Fetching proxies from Nginx Proxy Manager...")
