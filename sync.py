@@ -72,7 +72,7 @@ def run_sync(
             try:
                 hosts_from_pve = collect_proxmox(pve_cfg)
                 proxmox_hosts.extend(hosts_from_pve)
-                print(f"  → {pve_cfg.host}: {len(hosts_from_pve)} hosts (nodes + VMs + containers)")
+                print(f"  -> {pve_cfg.host}: {len(hosts_from_pve)} hosts (nodes + VMs + containers)")
             except Exception as e:
                 host_label = getattr(pve_cfg, 'host', 'Unknown')
                 print(f"  ERROR: {host_label}: {e}")
@@ -81,7 +81,7 @@ def run_sync(
         print("Collecting from Coolify...")
         try:
             coolify_hosts = collect_coolify(cfg.coolify)
-            print(f"  → {len(coolify_hosts)} applications + services")
+            print(f"  -> {len(coolify_hosts)} applications + services")
         except Exception as e:
             print(f"  ERROR: {e}")
 
@@ -89,7 +89,7 @@ def run_sync(
         print("Collecting from Pulse...")
         try:
             pulse_hosts = collect_pulse(cfg.pulse)
-            print(f"  → {len(pulse_hosts)} containers")
+            print(f"  -> {len(pulse_hosts)} containers")
         except Exception as e:
             print(f"  ERROR: {e}")
 
@@ -97,7 +97,7 @@ def run_sync(
         print("Collecting from NPM...")
         try:
             npm_services = collect_npm(cfg.npm)
-            print(f"  → {len(npm_services)} proxy services")
+            print(f"  -> {len(npm_services)} proxy services")
         except Exception as e:
             print(f"  ERROR: {e}")
 
@@ -110,7 +110,7 @@ def run_sync(
         pulse_hosts=pulse_hosts,
         npm_services=npm_services,
     )
-    print(f"  → {len(desired.hosts)} hosts")
+    print(f"  -> {len(desired.hosts)} hosts")
 
     # Phase 3: Reconcile
     print("\nReconciling against NetBox...")
@@ -125,7 +125,7 @@ def run_sync(
     update_count = sum(1 for a in actions if a.verb == "update")
     delete_count = sum(1 for a in actions if a.verb == "delete")
     skip_count = sum(1 for a in actions if a.verb == "skip")
-    print(f"  → {len(actions)} actions ({create_count} create, {update_count} update, {delete_count} delete, {skip_count} skip)")
+    print(f"  -> {len(actions)} actions ({create_count} create, {update_count} update, {delete_count} delete, {skip_count} skip)")
 
     # Phase 4: Execute
     print()
@@ -137,6 +137,6 @@ def run_sync(
         from exporters.infisical import export as export_infisical
         try:
             export_infisical(cfg.netbox.url, cfg.netbox.token, cfg.infisical)
-            print("  → Export complete")
+            print("  -> Export complete")
         except Exception as e:
             print(f"  ERROR: Infisical export failed: {e}")

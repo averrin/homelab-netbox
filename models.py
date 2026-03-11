@@ -58,6 +58,7 @@ class Host:
     cluster_name: str | None = None
     tags: list[str] = field(default_factory=list)
     custom_fields: dict = field(default_factory=dict)
+    port: int | None = None
     
     # Site / role hints
     site_name: str | None = None

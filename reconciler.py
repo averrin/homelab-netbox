@@ -147,7 +147,11 @@ def _reconcile_host(desired: Host, existing: dict, nb: pynetbox.api) -> Action:
     port_to_apply = nb_port
 
     if not nb_port:
-        if desired.internal_url and ":" in desired.internal_url.split("://")[-1]:
+        # Fallback 1: Use port from models/collectors
+        if desired.port:
+            port_to_apply = desired.port
+        # Fallback 2: Parse from URL
+        elif desired.internal_url and ":" in desired.internal_url.split("://")[-1]:
             try:
                 port_str = desired.internal_url.split(":")[-1].split("/")[0]
                 if port_str.isdigit():
@@ -156,13 +160,16 @@ def _reconcile_host(desired: Host, existing: dict, nb: pynetbox.api) -> Action:
                 pass
 
     if nb_port:
-        # NetBox port governs: rewrite desired.internal_url
+        # NetBox port governs: rewrite desired.internal_url and ensure consistency
+        desired.port = int(nb_port)
         if desired.internal_url and ":" in desired.internal_url.split("://")[-1]:
             try:
                 parts = desired.internal_url.split(":")
-                base_part = ":".join(parts[:-1])
-                if "/" in parts[-1]:
-                    _, path_part = parts[-1].split("/", 1)
+                # Handle http://ip:port/path
+                base_part = ":".join(parts[:-1]) # http://ip
+                remaining = parts[-1] # port/path
+                if "/" in remaining:
+                    _, path_part = remaining.split("/", 1)
                     desired.internal_url = f"{base_part}:{nb_port}/{path_part}"
                 else:
                     desired.internal_url = f"{base_part}:{nb_port}"
@@ -224,8 +231,9 @@ def _reconcile_host(desired: Host, existing: dict, nb: pynetbox.api) -> Action:
 
 def _host_to_details(host: Host) -> dict:
     """Convert a Host model to a dictionary of creation details."""
-    port_to_apply = None
-    if host.internal_url and ":" in host.internal_url.split("://")[-1]:
+    # Use host.port if available, otherwise fallback to URL parsing
+    port_to_apply = host.port
+    if not port_to_apply and host.internal_url and ":" in host.internal_url.split("://")[-1]:
         try:
             port_str = host.internal_url.split(":")[-1].split("/")[0]
             if port_str.isdigit():

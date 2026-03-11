@@ -118,6 +118,23 @@ def _is_useless_host(value: str) -> bool:
     return value.lower() in useless
 
 
+def _extract_port(fqdn_field: str | None) -> int | None:
+    """Extract first non-standard port from Coolify FQDN field."""
+    if not fqdn_field:
+        return None
+    for entry in fqdn_field.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        # urlparse requires scheme for port extraction
+        if "://" not in entry:
+            entry = f"http://{entry}"
+        parsed = urlparse(entry)
+        if parsed.port:
+            return parsed.port
+    return None
+
+
 def _parse_application(app: dict, host_url: str, env_to_proj: dict) -> Host | None:
     """Parse a Coolify application into a Host."""
     name = app.get("name")
@@ -129,6 +146,7 @@ def _parse_application(app: dict, host_url: str, env_to_proj: dict) -> Host | No
     status_raw = str(app.get("status", ""))
     status = "active" if "running" in status_raw.lower() else "offline"
     domains = _extract_domains(fqdn)
+    port = _extract_port(fqdn)
 
     if fqdn and fqdn not in description:
         description = f"{description} | FQDN: {fqdn}".strip(" | ")
@@ -158,6 +176,7 @@ def _parse_application(app: dict, host_url: str, env_to_proj: dict) -> Host | No
         cluster_name="Coolify",
         custom_fields=custom_fields,
         config_url=config_url,
+        port=port,
         netbox_sync_protected=app.get("is_sync_protected", False),
     )
 
@@ -185,6 +204,7 @@ def _parse_service(svc: dict, host_url: str, env_to_proj: dict) -> list[Host]:
             
     fqdn_str = ",".join([f for f in fqdn_parts if f])
     domains = _extract_domains(fqdn_str)
+    port = _extract_port(fqdn_str)
 
     if fqdn_str and fqdn_str not in description:
         description = f"{description} | FQDN: {fqdn_str}".strip(" | ")
@@ -221,5 +241,6 @@ def _parse_service(svc: dict, host_url: str, env_to_proj: dict) -> list[Host]:
         cluster_name="Coolify",
         custom_fields=custom_fields,
         config_url=config_url,
+        port=port,
         netbox_sync_protected=svc.get("is_sync_protected", False),
     )]

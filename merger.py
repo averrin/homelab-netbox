@@ -170,6 +170,11 @@ def _enrich_host_from_npm(host: Host, svc) -> None:
     if int_urls and not host.internal_url:
         host.internal_url = int_urls[0]
 
+    # Port enrichment
+    ports = getattr(svc, "ports", [])
+    if ports and not host.port:
+        host.port = ports[0]
+
 
 def _enrich_host(existing: Host, pulse_host: Host) -> None:
     """Enrich an existing host with data from Pulse."""
@@ -197,6 +202,8 @@ def _enrich_host(existing: Host, pulse_host: Host) -> None:
         existing.external_url = pulse_host.external_url
     if pulse_host.internal_url and not existing.internal_url:
         existing.internal_url = pulse_host.internal_url
+    if pulse_host.port and not existing.port:
+        existing.port = pulse_host.port
 
 
 def _finalize_urls(host: Host) -> None:
@@ -217,3 +224,9 @@ def _finalize_urls(host: Host) -> None:
             host.internal_url = int_u[0]
         elif isinstance(int_u, str):
             host.internal_url = int_u
+
+    # Port
+    if not host.port:
+        p = host.custom_fields.get("port")
+        if p and str(p).isdigit():
+            host.port = int(p)
