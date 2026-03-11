@@ -39,21 +39,56 @@ def export(netbox_url: str, netbox_token: str, cfg: InfisicalConfig) -> None:
     hosts.extend(nb.virtualization.virtual_machines.filter(status="active"))
 
     for host in hosts:
+        # NetBox Pynetbox custom_fields return dictionaries, not Attribute objects
+        try:
+            internal_url = host.custom_fields.get("internal_url", "")
+        except AttributeError:
+             internal_url = getattr(host.custom_fields, "internal_url", "")
+             
+        if not internal_url:
+            continue
+
         ip = None
         # Devices use primary_ip4, VMs use primary_ip
         primary_ip = getattr(host, "primary_ip4", getattr(host, "primary_ip", None))
         if primary_ip:
             ip = primary_ip.address.split("/")[0]
 
-        # Use new singular URL fields
-        external_url = getattr(host.custom_fields, "external_url", "")
-        internal_url = getattr(host.custom_fields, "internal_url", "")
-        config_url = getattr(host.custom_fields, "config_url", "")
+        try:
+            external_url = host.custom_fields.get("external_url", "")
+        except AttributeError:
+             external_url = getattr(host.custom_fields, "external_url", "")
+        
+        # Check NetBox SOT for port first.
+        try:
+            port = host.custom_fields.get("port")
+        except AttributeError:
+             port = getattr(host.custom_fields, "port", None)
+             
+        if not port:
+            port = "N/A"
+            try:
+                if ":" in internal_url.replace("http://", "").replace("https://", ""):
+                    parts = internal_url.split(":")
+                    port = parts[-1].split("/")[0]
+            except Exception:
+                pass
 
         folder_name = host.name
-        folder_path = "/"
+        folder_path = "/vms/"
 
         try:
+            # Need to ensure the parent /vms folder exists first, then the host folder
+            try:
+                client.folders.create_folder(
+                    name="vms",
+                    environment_slug=cfg.environment,
+                    project_id=cfg.project_id,
+                    path="/",
+                )
+            except Exception:
+                pass
+                
             client.folders.create_folder(
                 name=folder_name,
                 environment_slug=cfg.environment,
@@ -66,10 +101,9 @@ def export(netbox_url: str, netbox_token: str, cfg: InfisicalConfig) -> None:
         secret_path = f"{folder_path}{folder_name}"
         secrets = {
             "IP": ip or "N/A",
-            "INTERNAL_LINK": internal_url or "N/A",
-            "EXTERNAL_LINK": external_url or "N/A",
-            "CONFIG_LINK": config_url or "N/A",
-            "NETBOX_URL": f"{nb.base_url}/dcim/devices/{host.id}/" if hasattr(host, "device_type") else f"{nb.base_url}/virtualization/virtual-machines/{host.id}/",
+            "PORT": port,
+            "INTERNAL_URL": internal_url,
+            "EXTERNAL_URL": external_url or "N/A",
         }
 
         for key, value in secrets.items():
@@ -95,12 +129,25 @@ def export(netbox_url: str, netbox_token: str, cfg: InfisicalConfig) -> None:
                 except Exception as e:
                     print(f"Failed to sync secret {key} for {host.name}: {e}")
 
-        # Update comments with Infisical reference
-        ref = f"\nInfisical Secrets Path: {secret_path} (Environment: {cfg.environment})"
-        comments = getattr(host, "comments", "") or ""
-        if "Infisical Secrets Path:" not in comments:
-            host.comments = comments + ref
-            host.save()
-            print(f"Exported {host.name} to Infisical.")
+        # Construct infisical dashboard link
+        base_url = cfg.url.rstrip('/')
+        workspace_id = cfg.project_id
+        
+        dashboard_url = f"{base_url}/organizations/{cfg.org_id}/projects/{cfg.project_slug}/{workspace_id}/secrets/{cfg.environment}?secretPath=%2Fvms%2F{host.name}"
+        
+        try:
+            current_url = host.custom_fields.get("infisical_url", "")
+        except AttributeError:
+            current_url = getattr(host.custom_fields, "infisical_url", "")
+            
+        if current_url != dashboard_url:
+            # Pynetbox needs a brand new dictionary instance to detect changes reliably
+            new_cfs = dict(getattr(host, "custom_fields", {}))
+            new_cfs["infisical_url"] = dashboard_url
+            try:
+                host.update({"custom_fields": new_cfs})
+                print(f"Exported {host.name} to Infisical & linked NetBox.")
+            except Exception as e:
+                print(f"Failed to save NetBox infisical_url for {host.name}: {e}")
         else:
             print(f"Synced {host.name} secrets to Infisical.")

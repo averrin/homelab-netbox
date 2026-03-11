@@ -136,7 +136,7 @@ def run_sync(
         print("\nExporting to Infisical...")
         from exporters.infisical import export as export_infisical
         try:
-            export_infisical(cfg.infisical, actions)
+            export_infisical(cfg.netbox.url, cfg.netbox.token, cfg.infisical)
             print("  → Export complete")
         except Exception as e:
             print(f"  ERROR: Infisical export failed: {e}")

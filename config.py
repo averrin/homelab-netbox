@@ -44,6 +44,8 @@ class InfisicalConfig:
     project_id: str = ""
     environment: str = "prod"
     secret_path: str = "/"
+    org_id: str = ""
+    project_slug: str = ""
 
     @property
     def is_configured(self) -> bool:
@@ -199,5 +201,7 @@ def load_config() -> Config:
             project_id=os.environ.get("INFISICAL_PROJECT_ID", ""),
             environment=os.environ.get("INFISICAL_ENV_SLUG", "prod"),
             secret_path=os.environ.get("INFISICAL_SECRET_PATH", "/"),
+            org_id=os.environ.get("INFISICAL_ORG_ID", "605b759e-1f28-4ba0-9e68-c9d050e519ca"),
+            project_slug=os.environ.get("INFISICAL_PROJECT_SLUG", "secret-management"),
         ),
     )

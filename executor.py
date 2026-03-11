@@ -109,11 +109,15 @@ def ensure_custom_fields(nb: pynetbox.api) -> None:
         ("config_url", "Config URL", "url", ["virtualization.virtualmachine", "dcim.device"]),
         ("external_url", "External URL", "url", ["virtualization.virtualmachine", "dcim.device"]),
         ("internal_url", "Internal URL", "url", ["virtualization.virtualmachine", "dcim.device"]),
+        ("port", "Port", "integer", ["virtualization.virtualmachine", "dcim.device"]),
         ("netbox_sync_protected", "Sync Protected", "boolean", ["virtualization.virtualmachine", "dcim.device"]),
         
         # Keep plural ones as legacy/deprecated but don't delete yet
         ("external_urls", "External URLs (Legacy)", "json", ["virtualization.virtualmachine", "dcim.device"]),
         ("internal_urls", "Internal URLs (Legacy)", "json", ["virtualization.virtualmachine", "dcim.device"]),
+        
+        # External tracking
+        ("infisical_url", "Infisical Managed Secrets", "url", ["virtualization.virtualmachine", "dcim.device"]),
     ]
     
     # Determine NetBox version (4.0+ uses core app and renames fields)

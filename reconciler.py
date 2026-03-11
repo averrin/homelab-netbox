@@ -142,12 +142,44 @@ def _reconcile_host(desired: Host, existing: dict, nb: pynetbox.api) -> Action:
     new_cfs = dict(existing["custom_fields"])
     cf_changed = False
     
+    # Check for Source-of-Truth port
+    nb_port = new_cfs.get("port")
+    port_to_apply = nb_port
+
+    if not nb_port:
+        if desired.internal_url and ":" in desired.internal_url.split("://")[-1]:
+            try:
+                port_str = desired.internal_url.split(":")[-1].split("/")[0]
+                if port_str.isdigit():
+                    port_to_apply = int(port_str)
+            except Exception:
+                pass
+
+    if nb_port:
+        # NetBox port governs: rewrite desired.internal_url
+        if desired.internal_url and ":" in desired.internal_url.split("://")[-1]:
+            try:
+                parts = desired.internal_url.split(":")
+                base_part = ":".join(parts[:-1])
+                if "/" in parts[-1]:
+                    _, path_part = parts[-1].split("/", 1)
+                    desired.internal_url = f"{base_part}:{nb_port}/{path_part}"
+                else:
+                    desired.internal_url = f"{base_part}:{nb_port}"
+            except Exception:
+                pass
+        elif not desired.internal_url:
+            preferred_ip = desired.get_preferred_ip()
+            if preferred_ip:
+                desired.internal_url = f"http://{preferred_ip}:{nb_port}"
+    
     # Map new singular fields
     cf_map = {
         "config_url": desired.config_url,
         "external_url": desired.external_url,
         "internal_url": desired.internal_url,
         "vmid": desired.vmid,
+        "port": port_to_apply,
     }
     
     for cf_key, cf_val in cf_map.items():
@@ -192,17 +224,31 @@ def _reconcile_host(desired: Host, existing: dict, nb: pynetbox.api) -> Action:
 
 def _host_to_details(host: Host) -> dict:
     """Convert a Host model to a dictionary of creation details."""
+    port_to_apply = None
+    if host.internal_url and ":" in host.internal_url.split("://")[-1]:
+        try:
+            port_str = host.internal_url.split(":")[-1].split("/")[0]
+            if port_str.isdigit():
+                port_to_apply = int(port_str)
+        except Exception:
+            pass
+
+    cfs = {
+        "vmid": host.vmid,
+        "config_url": host.config_url,
+        "external_url": host.external_url,
+        "internal_url": host.internal_url,
+        "netbox_sync_protected": host.netbox_sync_protected,
+    }
+    
+    if port_to_apply:
+        cfs["port"] = port_to_apply
+
     details = {
         "name": host.name,
         "status": host.status,
         "description": host.description[:200] if host.description else "",
-        "custom_fields": {
-            "vmid": host.vmid,
-            "config_url": host.config_url,
-            "external_url": host.external_url,
-            "internal_url": host.internal_url,
-            "netbox_sync_protected": host.netbox_sync_protected,
-        },
+        "custom_fields": cfs,
         "tags": host.tags,
     }
     

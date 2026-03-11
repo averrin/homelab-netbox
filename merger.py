@@ -159,6 +159,7 @@ def _enrich_host_from_npm(host: Host, svc) -> None:
     # Set singular URLs
     ext_urls = getattr(svc, "external_urls", [])
     if ext_urls:
+        ext_urls.sort(key=lambda url: "averr.in" not in url)
         first_new = ext_urls[0]
         current = host.external_url or ""
         # If current is empty, or current is wildcard and new one is not
