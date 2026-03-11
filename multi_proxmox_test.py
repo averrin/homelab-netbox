@@ -1,0 +1,1 @@
+import os; os.environ['PVE_API_HOST_1'] = os.environ.get('PVE_API_HOST', ''); os.environ['PVE_API_USER_1'] = os.environ.get('PVE_API_USER', ''); os.environ['PVE_API_TOKEN_1'] = os.environ.get('PVE_API_TOKEN', ''); os.environ['PVE_API_SECRET_1'] = os.environ.get('PVE_API_SECRET', '');
