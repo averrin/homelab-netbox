@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # Export environment variables to a file so cron jobs can access them
-# We filter out some common noise and format as export commands
-printenv | grep -v -e "no_proxy" -e "PATH" > /app/env.sh
+# We use anchored grep to avoid accidental matches (e.g. INFISICAL_SECRET_PATH)
+env | grep -E -v "^(no_proxy|PATH|PWD|SHLVL|_|HOME)=" > /app/env.sh
 sed -i 's/^\([^=]*\)=\(.*\)$/export \1="\2"/' /app/env.sh
 # Separately handle PATH to ensure we use the container's python path
 echo "export PATH=$PATH" >> /app/env.sh
