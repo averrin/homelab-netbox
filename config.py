@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 class SourceConfig:
     url: str
     token: str
+    api_url: str | None = None
 
 
 @dataclass
@@ -113,11 +114,16 @@ def _inject_infisical_secrets():
         print(f"Failed to fetch secrets from Infisical: {e}")
 
 
-def _opt_source(url_var: str, token_var: str) -> SourceConfig | None:
+def _opt_source(url_var: str, token_var: str, api_url_var: str | None = None) -> SourceConfig | None:
     url = os.environ.get(url_var)
     token = os.environ.get(token_var)
+    api_url = os.environ.get(api_url_var) if api_url_var else None
     if url and token:
-        return SourceConfig(url=url.rstrip("/"), token=token)
+        return SourceConfig(
+            url=url.rstrip("/"),
+            token=token,
+            api_url=api_url.rstrip("/") if api_url else None
+        )
     return None
 
 
@@ -190,7 +196,7 @@ def load_config() -> Config:
 
     return Config(
         netbox=netbox,
-        coolify=_opt_source("COOLIFY_URL", "COOLIFY_TOKEN"),
+        coolify=_opt_source("COOLIFY_URL", "COOLIFY_TOKEN", "COOLIFY_INTERNAL_URL"),
         pulse=_opt_source("PULSE_URL", "PULSE_TOKEN"),
         npm=npm,
         proxmox=proxmox_configs,
