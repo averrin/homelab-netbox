@@ -34,10 +34,13 @@ def collect(cfg: SourceConfig) -> list[Host]:
     headers = {"Authorization": f"Bearer {cfg.token}"}
     hosts: list[Host] = []
 
+    # Use api_url if provided, otherwise fallback to url
+    api_base_url = cfg.api_url if getattr(cfg, "api_url", None) else cfg.url
+
     # Fetch projects to map environment_id -> (project_uuid, environment_uuid)
     env_to_proj: dict[int, tuple[str, str]] = {}
     try:
-        resp = requests.get(f"{cfg.url}/api/v1/projects", headers=headers, verify=False)
+        resp = requests.get(f"{api_base_url}/api/v1/projects", headers=headers, verify=False)
         resp.raise_for_status()
         for proj_info in resp.json():
             proj_uuid = proj_info.get("uuid")
@@ -45,7 +48,7 @@ def collect(cfg: SourceConfig) -> list[Host]:
                 continue
                 
             # Fetch detailed project info to get environments
-            proj_resp = requests.get(f"{cfg.url}/api/v1/projects/{proj_uuid}", headers=headers, verify=False)
+            proj_resp = requests.get(f"{api_base_url}/api/v1/projects/{proj_uuid}", headers=headers, verify=False)
             if not proj_resp.ok:
                 continue
                 
@@ -60,9 +63,10 @@ def collect(cfg: SourceConfig) -> list[Host]:
 
     # Fetch applications
     try:
-        resp = requests.get(f"{cfg.url}/api/v1/applications", headers=headers, verify=False)
+        resp = requests.get(f"{api_base_url}/api/v1/applications", headers=headers, verify=False)
         resp.raise_for_status()
         for app in resp.json():
+            # Use original cfg.url for config_urls
             host = _parse_application(app, cfg.url, env_to_proj)
             if host:
                 hosts.append(host)
@@ -71,9 +75,10 @@ def collect(cfg: SourceConfig) -> list[Host]:
 
     # Fetch services
     try:
-        resp = requests.get(f"{cfg.url}/api/v1/services", headers=headers, verify=False)
+        resp = requests.get(f"{api_base_url}/api/v1/services", headers=headers, verify=False)
         resp.raise_for_status()
         for svc in resp.json():
+            # Use original cfg.url for config_urls
             svc_hosts = _parse_service(svc, cfg.url, env_to_proj)
             hosts.extend(svc_hosts)
     except Exception as e:
@@ -238,7 +243,7 @@ def _parse_service(svc: dict, host_url: str, env_to_proj: dict) -> list[Host]:
         source="coolify",
         description=description or f"Coolify service: {name}",
         platform="docker",
-        cluster_name="Coolify",
+        cluster_name="Coolify Services",
         custom_fields=custom_fields,
         config_url=config_url,
         port=port,
