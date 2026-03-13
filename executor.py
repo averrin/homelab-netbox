@@ -118,6 +118,11 @@ def ensure_custom_fields(nb: pynetbox.api) -> None:
         
         # External tracking
         ("infisical_url", "Infisical Managed Secrets", "url", ["virtualization.virtualmachine", "dcim.device"]),
+
+        # Monitoring hints
+        ("skip_ssl_verify", "Skip SSL Verify", "boolean", ["virtualization.virtualmachine", "dcim.device"]),
+        ("auth_type", "Auth Type", "text", ["virtualization.virtualmachine", "dcim.device"]),
+        ("monitors", "Monitors", "text", ["virtualization.virtualmachine", "dcim.device"]),
     ]
     
     # Determine NetBox version (4.0+ uses core app and renames fields)
@@ -185,7 +190,7 @@ def _apply_action(action: Action, nb: pynetbox.api) -> bool:
 
         if action.object_type == "device":
             _apply_device(action, nb)
-        elif action.object_type == "vm":
+        elif action.object_type in ("vm", "container"):
             _apply_vm(action, nb)
         elif action.object_type == "ip":
             _apply_ip(action, nb)
@@ -205,7 +210,7 @@ def _apply_delete(action: Action, nb: pynetbox.api) -> bool:
     try:
         if action.object_type == "device":
             obj = nb.dcim.devices.get(obj_id)
-        elif action.object_type == "vm":
+        elif action.object_type in ("vm", "container"):
             obj = nb.virtualization.virtual_machines.get(obj_id)
         elif action.object_type == "service":
             obj = nb.ipam.services.get(obj_id)
@@ -434,10 +439,16 @@ def _get_or_create_cluster(nb: pynetbox.api, cluster_name: str, is_device: bool,
     """Resolve a cluster ID by name, creating the cluster and cluster_type if missing."""
     if not cluster_name:
         return None
-        
+
     cluster = nb.virtualization.clusters.get(name=cluster_name)
     if cluster:
         return cluster.id
+
+    # Case-insensitive fallback: "coolify" → "Coolify"
+    candidates = list(nb.virtualization.clusters.filter(name__ic=cluster_name))
+    match = next((c for c in candidates if c.name.lower() == cluster_name.lower()), None)
+    if match:
+        return match.id
         
     if is_device:
         ct_name = "Proxmox"

@@ -175,7 +175,10 @@ def _reconcile_host(desired: Host, existing: dict, nb: pynetbox.api) -> Action:
                     desired.internal_url = f"{base_part}:{nb_port}"
             except Exception:
                 pass
-        elif not desired.internal_url:
+        elif desired.internal_url:
+            # URL exists but has no port — append it
+            desired.internal_url = f"{desired.internal_url.rstrip('/')}:{nb_port}"
+        else:
             preferred_ip = desired.get_preferred_ip()
             if preferred_ip:
                 desired.internal_url = f"http://{preferred_ip}:{nb_port}"

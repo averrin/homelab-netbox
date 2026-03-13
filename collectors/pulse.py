@@ -4,6 +4,11 @@ Pulse unified resource model uses hyphenated type strings:
   "docker-container", "container" (LXC), "oci-container", etc.
 IPs live in identity.ips[] and names in displayName or name.
 
+Resource type hierarchy:
+  "host"           → physical machine with Pulse agent (→ device)
+  "docker-host"    → Docker daemon; id==platformId UUID, name is human label
+  "docker-container" / "oci-container" / "container" / "pod" → containers
+
 See: https://github.com/rcourtman/Pulse/blob/main/docs/API.md
 """
 
@@ -15,17 +20,16 @@ from config import SourceConfig
 from models import Host, IPAddress, Interface
 
 
-# Resource types we treat as containers
 _CONTAINER_TYPES = {
-    "docker-container",   # Docker container (current Pulse schema)
-    "oci-container",      # OCI container (Proxmox VE 9.1+)
-    "container",          # LXC container
-    "pod",                # Kubernetes pod
+    "docker-container",
+    "oci-container",
+    "container",
+    "pod",
 }
 
 
 def collect(cfg: SourceConfig) -> list[Host]:
-    """Fetch /api/resources, filter containers, return Host objects.
+    """Fetch /api/resources, return Host objects for containers and standalone hosts.
 
     Raises:
         RuntimeError: If credentials are missing.
@@ -39,10 +43,45 @@ def collect(cfg: SourceConfig) -> list[Host]:
     response.raise_for_status()
     resources = response.json()
 
-    raw_containers = _filter_containers(resources)
+    all_resources = _flatten_resources(resources)
+
+    # Build platformId UUID → human name from docker-host entries
+    platform_names: dict[str, str] = {
+        r["id"]: (r.get("displayName") or r.get("name") or r["id"])
+        for r in all_resources
+        if r.get("type") == "docker-host" and r.get("id")
+    }
 
     hosts: list[Host] = []
-    for container in raw_containers:
+
+    # Standalone physical hosts (e.g. DietPi) → devices
+    for res in all_resources:
+        if res.get("type") != "host":
+            continue
+        name = res.get("displayName") or res.get("name")
+        if not name:
+            continue
+        status_raw = res.get("status", "").lower()
+        status = "active" if status_raw in ("running", "online") else "offline"
+        ips_raw = _extract_ips(res)
+        interfaces = []
+        if ips_raw:
+            ip_objs = [IPAddress(address=ip, prefix=32, source="pulse") for ip in ips_raw if ip]
+            if ip_objs:
+                interfaces.append(Interface(name="eth0", ip_addresses=ip_objs))
+        hosts.append(Host(
+            name=name,
+            host_type="device",
+            status=status,
+            source="pulse",
+            description=f"Pulse Host: {res.get('id', '')}",
+            interfaces=interfaces,
+        ))
+
+    # Containers → vms (cluster derived from parent docker-host name)
+    for container in all_resources:
+        if not _is_container(container):
+            continue
         name = (
             container.get("displayName")
             or container.get("name")
@@ -54,29 +93,34 @@ def collect(cfg: SourceConfig) -> list[Host]:
         status_raw = container.get("status", "").lower()
         status = "active" if status_raw in ("running", "online") else "offline"
 
-        # Parse IP addresses — Pulse stores them in identity.ips[]
         ips_raw = _extract_ips(container)
-
         interfaces = []
         if ips_raw:
-            ip_objs = [
-                IPAddress(address=ip, prefix=32, source="pulse")
-                for ip in ips_raw if ip
-            ]
+            ip_objs = [IPAddress(address=ip, prefix=32, source="pulse") for ip in ips_raw if ip]
             if ip_objs:
                 interfaces.append(Interface(name="eth0", ip_addresses=ip_objs))
 
-        hosts.append(
-            Host(
-                name=name,
-                host_type="container",
-                status=status,
-                source="pulse",
-                description=f"Pulse Container ID: {container.get('id', '')}",
-                interfaces=interfaces,
-                cluster_name=None,
-            )
-        )
+        platform_id = container.get("platformId") or container.get("parentId")
+        cluster_name = platform_names.get(platform_id) if platform_id else None
+
+        platform_type = container.get("platformType", "")
+        if platform_type == "docker":
+            platform = "docker"
+        elif platform_type == "proxmox-pve":
+            platform = container.get("platformData", {}).get("type") or "lxc"
+        else:
+            platform = None
+
+        hosts.append(Host(
+            name=name,
+            host_type="container",
+            status=status,
+            source="pulse",
+            description=f"Pulse Container ID: {container.get('id', '')}",
+            interfaces=interfaces,
+            cluster_name=cluster_name,
+            platform=platform,
+        ))
 
     return hosts
 
@@ -127,31 +171,19 @@ def _extract_ips(resource: dict) -> list[str]:
     return clean_ips
 
 
-def _filter_containers(resources) -> list[dict]:
-    """Extract container-type resources from the Pulse API response."""
-    containers = []
-
+def _flatten_resources(resources) -> list[dict]:
+    """Normalize the Pulse API response into a flat list of resource dicts."""
     if isinstance(resources, list):
-        for res in resources:
-            if _is_container(res):
-                containers.append(res)
-    elif isinstance(resources, dict) and "data" in resources:
-        for res in resources["data"]:
-            if _is_container(res):
-                containers.append(res)
-    elif isinstance(resources, dict) and "resources" in resources:
-        for res in resources["resources"]:
-            if _is_container(res):
-                containers.append(res)
-    elif isinstance(resources, dict):
-        for _k, res in resources.items():
-            if isinstance(res, dict) and _is_container(res):
-                containers.append(res)
-
-    return containers
+        return resources
+    if isinstance(resources, dict):
+        for key in ("resources", "data"):
+            if key in resources:
+                val = resources[key]
+                return val if isinstance(val, list) else list(val.values())
+        return [v for v in resources.values() if isinstance(v, dict)]
+    return []
 
 
 def _is_container(res: dict) -> bool:
-    """Check if a resource dict represents a container."""
     rt = res.get("type") or res.get("resourceType") or ""
     return rt in _CONTAINER_TYPES

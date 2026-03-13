@@ -58,6 +58,7 @@ class Config:
     netbox: SourceConfig | None = None
     coolify: SourceConfig | None = None
     pulse: SourceConfig | None = None
+    peekaping: SourceConfig | None = None
     npm: NpmConfig | None = None
     proxmox: list[ProxmoxConfig] = field(default_factory=list)
     infisical: InfisicalConfig = field(default_factory=InfisicalConfig)
@@ -198,6 +199,7 @@ def load_config() -> Config:
         netbox=netbox,
         coolify=_opt_source("COOLIFY_URL", "COOLIFY_TOKEN", "COOLIFY_INTERNAL_URL"),
         pulse=_opt_source("PULSE_URL", "PULSE_TOKEN"),
+        peekaping=_opt_source("PEEKAPING_URL", "PEEKAPING_TOKEN"),
         npm=npm,
         proxmox=proxmox_configs,
         infisical=InfisicalConfig(

@@ -140,3 +140,11 @@ def run_sync(
             print("  -> Export complete")
         except Exception as e:
             print(f"  ERROR: Infisical export failed: {e}")
+
+    if not dry_run and "peekaping" in exporters and cfg.peekaping:
+        print("\nExporting to Peekaping...")
+        from exporters.peekaping import export as export_peekaping
+        try:
+            export_peekaping(cfg.netbox.url, cfg.netbox.token, cfg.peekaping, cfg.infisical)
+        except Exception as e:
+            print(f"  ERROR: Peekaping export failed: {e}")
