@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> None:
         type=str,
         default=None,
         help="Comma-separated list of exporters to run (default: all configured). "
-             "Options: infisical",
+             "Options: infisical,proxmox_notes",
     )
     args = parser.parse_args(argv)
 

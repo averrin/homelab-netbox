@@ -7,31 +7,12 @@ Two modes:
 
 from __future__ import annotations
 
-import sys
 import ipaddress as ipaddr_mod
 
 import pynetbox
 
 from models import Action
-
-
-# ANSI colors for terminal output
-_COLORS = {
-    "green": "\033[32m",
-    "yellow": "\033[33m",
-    "cyan": "\033[36m",
-    "dim": "\033[2m",
-    "reset": "\033[0m",
-    "bold": "\033[1m",
-}
-
-
-def _supports_color() -> bool:
-    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-
-
-def _c(name: str) -> str:
-    return _COLORS.get(name, "") if _supports_color() else ""
+from logging_utils import c as _c
 
 
 def execute(

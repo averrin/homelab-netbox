@@ -25,7 +25,7 @@ COPY . .
 RUN chmod +x entrypoint.sh
 
 # Environment variables for overriding
-ENV SYNC_CMD="python cli.py --verbose --sources coolify,pulse,npm,proxmox --export infisical"
+ENV SYNC_CMD="python cli.py --verbose --sources coolify,pulse,npm,proxmox --export infisical,peekaping,proxmox_notes"
 ENV SYNC_CRON="*/2 * * * *"
 
 # Run the sync loop

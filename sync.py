@@ -141,6 +141,15 @@ def run_sync(
         except Exception as e:
             print(f"  ERROR: Infisical export failed: {e}")
 
+    if not dry_run and "proxmox_notes" in exporters and cfg.proxmox:
+        print("\nExporting Traefik notes to Proxmox...")
+        from exporters.proxmox_notes import export as export_proxmox_notes
+        try:
+            export_proxmox_notes(cfg.netbox.url, cfg.netbox.token, cfg)
+            print("  -> Proxmox notes export complete")
+        except Exception as e:
+            print(f"  ERROR: Proxmox notes export failed: {e}")
+
     if not dry_run and "peekaping" in exporters and cfg.peekaping:
         print("\nExporting to Peekaping...")
         from exporters.peekaping import export as export_peekaping

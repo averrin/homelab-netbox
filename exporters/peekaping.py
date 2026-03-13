@@ -20,26 +20,12 @@ import pynetbox
 import requests
 
 from config import InfisicalConfig, SourceConfig
+from logging_utils import c as _c
 
 _NOTIFIER_ID = "6bde4b28-afab-4200-9692-47cf9089adfc"  # Carrot Bot
 _DEFAULT_INTERVAL = 60
 _DEFAULT_TIMEOUT = 16
 _DEFAULT_MAX_RETRIES = 3
-
-_COLORS = {
-    "green": "\033[32m",
-    "yellow": "\033[33m",
-    "cyan": "\033[36m",
-    "dim": "\033[2m",
-    "reset": "\033[0m",
-    "bold": "\033[1m",
-}
-
-
-def _c(name: str) -> str:
-    supports = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-    return _COLORS.get(name, "") if supports else ""
-
 
 def _print(verb: str, name: str, details: dict | None = None, error: str | None = None) -> None:
     verb_color = {"create": _c("green"), "update": _c("yellow"), "delete": _c("yellow"), "skip": _c("dim")}.get(verb, "")
